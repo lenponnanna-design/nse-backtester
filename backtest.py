@@ -1,8 +1,37 @@
 import yfinance as yf
 import argparse
-import pandas as pd               # <-- FIX ADDED
+import pandas as pd
+import requests
 from datetime import datetime, timedelta
+import os
 
+# -------------------------
+# Telegram Function
+# -------------------------
+def telegram_message(text):
+    bot_token = os.getenv("BOT_TOKEN")
+    chat_id = os.getenv("CHAT_ID")
+
+    if not bot_token or not chat_id:
+        print("❌ Telegram not configured (BOT_TOKEN or CHAT_ID missing).")
+        return
+
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    data = {"chat_id": chat_id, "text": text}
+
+    try:
+        r = requests.post(url, data=data)
+        if r.status_code != 200:
+            print("❌ Telegram send error:", r.text)
+        else:
+            print("✔ Telegram message sent")
+    except Exception as e:
+        print("❌ Telegram exception:", e)
+
+
+# -------------------------
+# Pattern Functions
+# -------------------------
 def is_bullish_engulfing(prev, curr):
     return (
         prev['Close'] < prev['Open'] and
@@ -25,6 +54,10 @@ def is_spinning_top(candle):
     low_tail = min(candle['Close'], candle['Open']) - candle['Low']
     return body < (high_tail + low_tail) * 0.3
 
+
+# -------------------------
+# Fetch Candle
+# -------------------------
 def fetch_daily_candle(symbol, date):
     start = (datetime.strptime(date, "%Y-%m-%d") - timedelta(days=3)).strftime("%Y-%m-%d")
     end = (datetime.strptime(date, "%Y-%m-%d") + timedelta(days=3)).strftime("%Y-%m-%d")
@@ -35,27 +68,30 @@ def fetch_daily_candle(symbol, date):
         print("No data received.")
         return None, None
 
-    # Fix MultiIndex columns
     if isinstance(data.columns, pd.MultiIndex):
         data.columns = data.columns.droplevel(1)
 
     data.index = data.index.strftime("%Y-%m-%d")
 
     if date not in data.index:
-        print(f"No candle for {date}.")
+        print(f"No candle found for {date}")
         return None, None
 
     curr = data.loc[date]
     idx = list(data.index).index(date)
 
     if idx == 0:
-        print("No previous candle.")
+        print("No previous candle available")
         return None, None
 
     prev = data.loc[list(data.index)[idx - 1]]
 
     return prev, curr
 
+
+# -------------------------
+# Main
+# -------------------------
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--stock", required=True)
@@ -72,19 +108,27 @@ def main():
     print("Current:", curr.to_dict())
     print("-------------------\n")
 
+    # --- Pattern Checks ---
     if is_bearish_engulfing(prev, curr):
-        print(f"🔥 BEARISH ENGULFING detected in {args.stock} on {args.date}")
+        msg = f"🔥 *BEARISH ENGULFING detected*\n\nStock: {args.stock}\nDate: {args.date}"
+        telegram_message(msg)
+        print(msg)
         return
 
     if is_bullish_engulfing(prev, curr):
-        print(f"🔥 BULLISH ENGULFING detected in {args.stock} on {args.date}")
+        msg = f"🔥 *BULLISH ENGULFING detected*\n\nStock: {args.stock}\nDate: {args.date}"
+        telegram_message(msg)
+        print(msg)
         return
 
     if is_spinning_top(curr):
-        print(f"🌀 SPINNING TOP detected in {args.stock} on {args.date}")
+        msg = f"🌀 *SPINNING TOP detected*\n\nStock: {args.stock}\nDate: {args.date}"
+        telegram_message(msg)
+        print(msg)
         return
 
-    print("No pattern detected.")
+    print("No pattern detected for this date.")
+
 
 if __name__ == "__main__":
     main()
