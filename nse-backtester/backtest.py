@@ -1,72 +1,100 @@
-import argparse
-import pandas as pd
 import yfinance as yf
-import requests
-import os
+import argparse
+from datetime import datetime, timedelta
 
-# Detect Engulfing
-def is_engulfing(c_prev, c_now):
+# -------------------------
+# Pattern detection helpers
+# -------------------------
+
+def is_bullish_engulfing(prev, curr):
     return (
-        c_prev['Open'] > c_prev['Close'] and c_now['Open'] < c_now['Close'] and
-        c_now['Open'] <= c_prev['Close'] and c_now['Close'] >= c_prev['Open']
-    ) or (
-        c_prev['Open'] < c_prev['Close'] and c_now['Open'] > c_now['Close'] and
-        c_now['Open'] >= c_prev['Close'] and c_now['Close'] <= c_prev['Open']
+        prev["Close"] < prev["Open"] and
+        curr["Close"] > curr["Open"] and
+        curr["Open"] < prev["Close"] and
+        curr["Close"] > prev["Open"]
     )
 
-# Detect Spinning Top
-def is_spinning(c):
-    body = abs(c['Close'] - c['Open'])
-    high_wick = c['High'] - max(c['Open'], c['Close'])
-    low_wick = min(c['Open'], c['Close']) - c['Low']
-    return body <= (high_wick + low_wick) * 0.3
+def is_bearish_engulfing(prev, curr):
+    return (
+        prev["Close"] > prev["Open"] and
+        curr["Close"] < curr["Open"] and
+        curr["Open"] > prev["Close"] and
+        curr["Close"] < prev["Open"]
+    )
 
+def is_spinning_top(candle):
+    body = abs(candle["Close"] - candle["Open"])
+    high_tail = candle["High"] - max(candle["Close"], candle["Open"])
+    low_tail = min(candle["Close"], candle["Open"]) - candle["Low"]
+    return body < (high_tail + low_tail) * 0.3
 
-def telegram_send(message):
-    token = os.getenv("BOT_TOKEN")
-    chat_id = os.getenv("CHAT_ID")
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    requests.post(url, data={"chat_id": chat_id, "text": message})
+# -------------------------
+# Fetch candle data
+# -------------------------
 
+def fetch_daily_candle(symbol, date):
+    dt = datetime.strptime(date, "%Y-%m-%d")
+
+    start = (dt - timedelta(days=5)).strftime("%Y-%m-%d")
+    end = (dt + timedelta(days=5)).strftime("%Y-%m-%d")
+
+    df = yf.download(symbol, start=start, end=end, progress=False)
+
+    if df.empty:
+        print("No data found for this stock/date.")
+        return None, None
+
+    df.index = df.index.strftime("%Y-%m-%d")
+
+    if date not in df.index:
+        print("No candle found on that date (market holiday or invalid date).")
+        return None, None
+
+    idx = list(df.index).index(date)
+
+    if idx == 0:
+        print("No previous candle available.")
+        return None, None
+
+    prev = df.iloc[idx - 1]
+    curr = df.loc[date]
+
+    return prev, curr
+
+# -------------------------
+# Main
+# -------------------------
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--stock", required=True)
-    parser.add_argument("--date", required=True)
+    parser.add_argument("--stock", required=True, help="Stock symbol e.g. IOC.NS")
+    parser.add_argument("--date", required=True, help="YYYY-MM-DD")
     args = parser.parse_args()
 
-    df = yf.download(args.stock, start=args.date, end=args.date)
-    if df.empty:
-        telegram_send(f"[ERROR] No data for {args.stock} on {args.date}")
+    prev, curr = fetch_daily_candle(args.stock, args.date)
+
+    if prev is None or curr is None:
         return
 
-    df2 = yf.download(args.stock, period="5d")
-    df2 = df2.reset_index()
+    print("\n--- Candle Data ---")
+    print("Previous:", prev.to_dict())
+    print("Current :", curr.to_dict())
+    print("-------------------\n")
 
-    target_idx = df2[df2['Date'] == pd.to_datetime(args.date)].index
-    if len(target_idx) == 0:
-        telegram_send(f"No trading data for {args.stock} on {args.date}")
+    # Pattern Detection
+    if is_bearish_engulfing(prev, curr):
+        print(f"🔥 BEARISH ENGULFING detected for {args.stock} on {args.date}")
         return
 
-    i = target_idx[0]
-    if i == 0:
-        telegram_send("Not enough previous data for pattern check")
+    if is_bullish_engulfing(prev, curr):
+        print(f"🔥 BULLISH ENGULFING detected for {args.stock} on {args.date}")
         return
 
-    prev_c = df2.iloc[i - 1]
-    now_c = df2.iloc[i]
+    if is_spinning_top(curr):
+        print(f"🌀 SPINNING TOP detected for {args.stock} on {args.date}")
+        return
 
-    patterns = []
-    if is_engulfing(prev_c, now_c):
-        patterns.append("Engulfing")
-    if is_spinning(now_c):
-        patterns.append("Spinning Top")
-
-    if patterns:
-        telegram_send(f"Backtest Result for {args.stock} on {args.date}: {', '.join(patterns)}")
-    else:
-        telegram_send(f"No pattern detected for {args.stock} on {args.date}")
-
+    print(f"No pattern found for {args.stock} on {args.date}")
 
 if __name__ == "__main__":
     main()
