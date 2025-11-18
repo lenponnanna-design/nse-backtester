@@ -3,7 +3,7 @@ name: NSE Backtest Scanner
 on:
   schedule:
     - cron: '0 13 * * 1-5'  # 7 PM IST, Monday to Friday
-  workflow_dispatch:        # allows manual run
+  workflow_dispatch:
 
 jobs:
   run-backtest:
@@ -25,20 +25,25 @@ jobs:
 
       - name: Run backtest for multiple stocks
         id: backtest
+        env:
+          TEST_PATTERN: "1"  # Force test pattern for testing
         run: |
-          # List of stocks to scan
           STOCKS=("IOC.NS" "RELIANCE.NS" "TCS.NS" "INFY.NS")
-          
-          OUTPUT=""
           DATE=$(date +%Y-%m-%d)
+          OUTPUT="📊 NSE Backtest Results ($DATE)\n\n"
 
           for stock in "${STOCKS[@]}"; do
-            echo "Running backtest for $stock..."
             result=$(python backtest.py --stock $stock --date $DATE)
-            OUTPUT="$OUTPUT\n$result\n\n"
+            
+            # Parse result for pattern
+            if echo "$result" | grep -q "ENGULFING"; then
+              pattern=$(echo "$result" | grep "ENGULFING")
+              OUTPUT="$OUTPUT$stock: 🔥 $pattern\n"
+            else
+              OUTPUT="$OUTPUT$stock: No pattern detected\n"
+            fi
           done
 
-          # Save output to environment variable
           echo "BACKTEST_OUTPUT<<EOF" >> $GITHUB_ENV
           echo -e "$OUTPUT" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
@@ -57,7 +62,6 @@ jobs:
           chat_id = os.environ['CHAT_ID']
           message = os.environ.get('BACKTEST_OUTPUT', 'No output from backtest.')
 
-          # Telegram has 4096 character limit, split if needed
           max_len = 4000
           for i in range(0, len(message), max_len):
               chunk = message[i:i+max_len]
