@@ -21,18 +21,38 @@ jobs:
           python -m pip install --upgrade pip
           pip install yfinance pandas requests python-dotenv
 
-      # 🔍 DEBUG STEP — Check if secrets are loaded
-      - name: Debug Telegram Variables
+      - name: Run backtest and capture output
+        id: backtest
         run: |
-          echo "BOT_TOKEN length: ${#BOT_TOKEN}"
-          echo "CHAT_ID: $CHAT_ID"
-        env:
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          CHAT_ID: ${{ secrets.CHAT_ID }}
+          # Run backtest and capture stdout
+          output=$(python backtest.py --stock IOC.NS --date 2025-10-14)
+          echo "$output"
+          
+          # Save output as a workflow variable
+          echo "BACKTEST_OUTPUT<<EOF" >> $GITHUB_ENV
+          echo "$output" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
 
-      - name: Run backtest
+      - name: Send Telegram message
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
+          BACKTEST_OUTPUT: ${{ env.BACKTEST_OUTPUT }}
         run: |
-          python backtest.py --stock IOC.NS --date 2025-10-14
+          python - <<'EOF'
+          import os
+          import requests
+
+          bot_token = os.environ['BOT_TOKEN']
+          chat_id = os.environ['CHAT_ID']
+          message = os.environ.get('BACKTEST_OUTPUT', 'No output from backtest.')
+
+          # Telegram has a 4096 character limit per message
+          max_len = 4000
+          for i in range(0, len(message), max_len):
+              chunk = message[i:i+max_len]
+              requests.post(
+                  f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                  data={"chat_id": chat_id, "text": chunk}
+              )
+          EOF
