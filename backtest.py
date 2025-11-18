@@ -1,21 +1,22 @@
 import yfinance as yf
 import argparse
+import pandas as pd               # <-- FIX ADDED
 from datetime import datetime, timedelta
 
 def is_bullish_engulfing(prev, curr):
     return (
-        prev['Close'] < prev['Open'] and  
-        curr['Close'] > curr['Open'] and  
-        curr['Open'] < prev['Close'] and  
-        curr['Close'] > prev['Open']       
+        prev['Close'] < prev['Open'] and
+        curr['Close'] > curr['Open'] and
+        curr['Open'] < prev['Close'] and
+        curr['Close'] > prev['Open']
     )
 
 def is_bearish_engulfing(prev, curr):
     return (
-        prev['Close'] > prev['Open'] and  
-        curr['Close'] < curr['Open'] and  
-        curr['Open'] > prev['Close'] and  
-        curr['Close'] < prev['Open']      
+        prev['Close'] > prev['Open'] and
+        curr['Close'] < curr['Open'] and
+        curr['Open'] > prev['Close'] and
+        curr['Close'] < prev['Open']
     )
 
 def is_spinning_top(candle):
@@ -34,7 +35,7 @@ def fetch_daily_candle(symbol, date):
         print("No data received.")
         return None, None
 
-    # FIX MULTI-INDEX COLUMNS
+    # Fix MultiIndex columns
     if isinstance(data.columns, pd.MultiIndex):
         data.columns = data.columns.droplevel(1)
 
