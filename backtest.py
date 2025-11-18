@@ -29,9 +29,14 @@ def fetch_daily_candle(symbol, date):
     end = (datetime.strptime(date, "%Y-%m-%d") + timedelta(days=3)).strftime("%Y-%m-%d")
 
     data = yf.download(symbol, start=start, end=end, progress=False)
+
     if data.empty:
         print("No data received.")
         return None, None
+
+    # FIX MULTI-INDEX COLUMNS
+    if isinstance(data.columns, pd.MultiIndex):
+        data.columns = data.columns.droplevel(1)
 
     data.index = data.index.strftime("%Y-%m-%d")
 
